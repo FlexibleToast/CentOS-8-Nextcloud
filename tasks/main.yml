@@ -1,0 +1,135 @@
+---
+# tasks file for CentOS-8-Nextcloud
+- name: install required packages
+  yum:
+    name: '{{ item }}'
+    state: present
+  loop:
+  - unzip
+  - php-gd, php-json, php-mbstring, php-xml, php-pdo, php-bz2, php-bz2, php-curl, php-zip # Required packages
+  - php-intl, php-ldap, php-gmp # Optional packages
+  - redis
+  notify: restart php
+
+- name: cleanup info.php
+  file:
+    path: /usr/share/nginx/html/info.php
+    state: absent
+
+- name: set max upload size in php
+  lineinfile:
+    path: /etc/php.ini
+    regexp: 'upload_max_filesize ='
+    line: 'upload_max_filesize = {{ max_upload_size }}'
+  notify: restart php
+  tags: upload-size
+
+- name: start redis
+  service:
+    name: redis
+    enabled: true
+    state: started
+
+- name: download latest Nextcloud
+  unarchive:
+    remote_src: yes
+    src: https://download.nextcloud.com/server/releases/latest.zip
+    dest: /usr/share/nginx
+    owner: nginx
+    group: nginx
+    creates: /usr/share/nginx/nextcloud
+  notify: restart nginx
+
+- name: create data directory for nextcloud
+  file:
+    path: '{{ data_dir }}'
+    state: directory
+    owner: nginx
+    group: nginx
+
+- name: create nextcloud database
+  mysql_db:
+    name: '{{ db_name }}'
+    state: present
+    collation: utf8mb4_general_ci
+    encoding: utf8mb4
+  notify: restart mariadb
+
+- name: create nextcloud database user
+  mysql_user:
+    name: '{{ db_nextcloud_user }}'
+    host: localhost
+    password: '{{ db_nextcloud_password }}'
+    priv: "{{ db_name }}.*:ALL"
+  notify: restart mariadb
+
+- name: create nginx config for Nextcloud
+  template:
+    src: templates/nextcloud.conf.j2
+    dest: /etc/nginx/conf.d/nextcloud.conf
+  notify: restart nginx
+  tags: upload-size
+
+- name: set SELinux bools
+  seboolean:
+    name: '{{ item }}'
+    state: yes
+    persistent: yes
+  loop:
+  - httpd_execmem
+  - httpd_can_network_connect
+  - httpd_can_sendmail
+
+- name: set SELinux contexts
+  sefcontext:
+    target: '{{ item }}'
+    setype: httpd_sys_rw_content_t
+    state: present
+  loop:
+  - '/usr/share/nginx/nextcloud(/.*)?'
+  - '{{ data_dir }}(/.*)?'
+  notify: apply new SELinux contexts
+
+- name: set ACLs
+  acl:
+    path: '/var/lib/php/{{ item }}'
+    recursive: yes
+    entity: nginx
+    etype: user
+    permissions: rwx
+    state: present
+  loop:
+  - "opcache"
+  - "session"
+  - "wsdlcache"
+  notify: restart nginx
+
+- name: config.php check
+  stat:
+    path: "{{ web_root }}/config/config.php"
+  register: config_php
+  when: proxy is defined
+  tags: proxy
+
+- name: config.php does not exist
+  debug:
+    msg: "*** To setup reverse proxy in Nextcloud first run web installer, then re-run playbook with --tags=proxy ***"
+  when: config_php.stat.exists == false and proxy is defined
+  tags: proxy
+
+- name: set reverse proxy
+  lineinfile:
+    path: "{{ web_root }}/config/config.php"
+    insertafter: "datadirectory"
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+  with_items:
+  - { regexp: "overwrite.cli.url", line: "  'overwrite.cli.url' => 'https://{{ ansible_hostname }}.{{ your_domain }}'," }
+  - { regexp: "trusted_proxies", line: "  'trusted_proxies' => ['{{ proxy }}']," }
+  - { regexp: "overwritehost", line: "  'overwritehost' => '{{ ansible_hostname }}.{{ your_domain }}'," }
+  - { regexp: "overwriteprotocol", line: "  'overwriteprotocol' => 'https'," }
+  notify: restart php
+  when: config_php.stat.exists == true and proxy is defined
+  tags: proxy
+  register: proxy_result
+  ignore_errors: yes

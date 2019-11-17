@@ -1,0 +1,17 @@
+---
+# defaults file for CentOS-8-Nextcloud
+
+## Database variables ##
+# Database root user
+db_root_password: changeme
+# Nextcloud user and database
+db_nextcloud_user: nextcloud
+db_nextcloud_password: changeme 
+db_name: Nextcloud
+
+## Server variables ##
+your_domain: example.com
+web_root: /usr/share/nginx/nextcloud
+data_dir: /usr/share/nginx/nextcloud/data
+max_upload_size: 4096 # Set in megabytes
+proxy: # Add ip address of reverse proxy if required
