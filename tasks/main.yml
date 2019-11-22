@@ -6,10 +6,12 @@
     state: present
   loop:
   - unzip
-  - php-gd, php-json, php-mbstring, php-xml, php-pdo, php-bz2, php-bz2, php-curl, php-zip # Required packages
+  - php-gd, php-json, php-mbstring, php-xml, php-pdo, php-bz2, php-bz2, php-curl, php-zip, php-process # Required packages
   - php-intl, php-ldap, php-gmp # Optional packages
   - redis
-  notify: restart php
+  notify: 
+  - restart php
+  - restart nginx
 
 - name: cleanup info.php
   file:
@@ -23,6 +25,13 @@
     line: 'upload_max_filesize = {{ max_upload_size }}'
   notify: restart php
   tags: upload-size
+
+- name: set php memory limit
+  lineinfile:
+    path: /etc/php.ini
+    regexp: memory_limit
+    line: memory_limit = {{ php_memory }}M
+  notify: restart nginx
 
 - name: start redis
   service:

@@ -14,4 +14,5 @@ your_domain: example.com
 web_root: /usr/share/nginx/nextcloud
 data_dir: /usr/share/nginx/nextcloud/data
 max_upload_size: 4096 # Set in megabytes
+php_memory: 512 # Set in megabytes, Nextcloud default it 512
 proxy: # Add ip address of reverse proxy if required
